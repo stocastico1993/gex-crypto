@@ -1,0 +1,27 @@
+name: raccolta GEX orario
+
+on:
+  schedule:
+    - cron: "5 * * * *"      # ogni ora, al minuto 5 (orario UTC)
+  workflow_dispatch:          # permette di lanciarlo a mano dal sito
+
+permissions:
+  contents: write             # serve per salvare il CSV nel repository
+
+concurrency: raccolta-gex
+
+jobs:
+  raccolta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scarica dati Deribit e calcola GEX
+        run: python3 raccolta_gex.py
+      - name: Salva il CSV
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add data/gex_orario.csv
+          git commit -m "dati $(date -u +'%Y-%m-%d %H:%M')" || exit 0
+          git pull --rebase
+          git push
