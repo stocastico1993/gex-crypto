@@ -1,8 +1,6 @@
 name: raccolta GEX orario
 
 on:
-  schedule:
-    - cron: "23 * * * *"      # ogni ora, al minuto 5 (orario UTC)
   workflow_dispatch:          # permette di lanciarlo a mano dal sito
 
 permissions:
