@@ -30,7 +30,7 @@ COLONNE = ["data", "asset", "spot_0100", "gex_totale", "gex_banda30", "gex_entro
 def apri(tipo, giorno, simbolo):
     url = URL.format(tipo=tipo, d=giorno, simbolo=simbolo)
     req = urllib.request.Request(url, headers={"User-Agent": "gex-crypto-studio"})
-    for tentativo in range(3):
+    for tentativo in range(6):
         try:
             risposta = urllib.request.urlopen(req, timeout=120)
             return risposta, io.TextIOWrapper(gzip.GzipFile(fileobj=risposta), encoding="utf-8")
@@ -38,6 +38,11 @@ def apri(tipo, giorno, simbolo):
             if e.code == 404:
                 return None, None
             errore = e
+            if e.code == 429:            # troppe richieste: Tardis chiede di rallentare
+                attesa = int(e.headers.get("Retry-After") or 0) or 60 * 2 ** tentativo
+                print(f"429 su {url}: aspetto {attesa} s")
+                time.sleep(attesa)
+                continue
         except Exception as e:
             errore = e
         time.sleep(10 * (tentativo + 1))
@@ -162,19 +167,28 @@ def main():
         if giorno < PRIMO_GIORNO or giorno >= oggi:
             continue
         t0 = time.time()
-        foto, foto_ora = foto_catena(giorno)
+        try:
+            foto, foto_ora = foto_catena(giorno)
+        except Exception as e:           # un mese che fallisce non fa perdere gli altri
+            print(f"{giorno}: ERRORE options_chain {e}")
+            continue
         if foto is None:
             print(f"{giorno}: options_chain non disponibile")
             continue
         for asset in ["BTC", "ETH"]:
             g = gex_asset(*foto, asset, foto_ora)
-            p = movimento(prezzi_orari(giorno, asset))
+            try:
+                p = movimento(prezzi_orari(giorno, asset))
+            except Exception as e:
+                print(f"{giorno} {asset}: ERRORE trades {e}")
+                continue
             if g is None or p is None:
                 print(f"{giorno} {asset}: dati insufficienti (gex={g is not None}, prezzi={p is not None})")
                 continue
             righe.append({"data": str(giorno), "asset": asset, **p, **g})
             print(f"{giorno} {asset}: {righe[-1]}")
         print(f"{giorno}: {time.time() - t0:.0f} s")
+        time.sleep(5)                    # una richiesta alla volta, senza fretta
     with open(arg.uscita, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=COLONNE)
         w.writeheader()
