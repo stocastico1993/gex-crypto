@@ -1,0 +1,3 @@
+data,asset,spot_0100,gex_totale,gex_banda30,gex_entro7g,gamma_lorda_call,gamma_lorda_put,gex_norm,iv_atm_30g,n_opzioni,ore_prezzo,mov_medio_bp,range_pct,rend_pct
+2024-06-01,BTC,67610.0,54.633,42.6305,1.7475,120.9821,66.3491,0.2916,50.28,833,24,6.587,0.389,0.1745
+2024-06-01,ETH,3761.9,49.6692,43.5995,19.0121,81.837,32.1679,0.4357,64.63,700,24,19.149,1.5617,1.3903
