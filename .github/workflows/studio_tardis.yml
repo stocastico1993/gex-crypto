@@ -1,0 +1,70 @@
+name: studio storico Tardis (primo del mese)
+
+on:
+  workflow_dispatch:          # solo a mano: non fa parte della raccolta oraria
+    inputs:
+      anni:
+        description: 'Anni da scaricare, in formato JSON'
+        default: '["2020","2021","2022","2023","2024","2025","2026"]'
+      mesi:
+        description: 'Mesi (es. "06" o "01 07"); vuoto = tutti'
+        default: ''
+
+permissions:
+  contents: write             # serve per salvare la tabella nel repository
+
+concurrency: studio-tardis
+
+jobs:
+  scarica:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        anno: ${{ fromJSON(inputs.anni) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scarica e calcola
+        run: python3 analisi/studio_tardis.py --anno ${{ matrix.anno }} --mesi "${{ inputs.mesi }}" --uscita studio_${{ matrix.anno }}.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-${{ matrix.anno }}
+          path: studio_${{ matrix.anno }}.csv
+
+  salva:
+    needs: scarica
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: studio-*
+          merge-multiple: true
+          path: parziali
+      - name: Unisci con la tabella esistente e salva
+        run: |
+          python3 - <<'EOF'
+          import csv, glob, os
+          out = "studio/tardis_giornaliero.csv"
+          righe, colonne = {}, None
+          for f in ([out] if os.path.exists(out) else []) + sorted(glob.glob("parziali/*.csv")):
+              with open(f) as h:
+                  r = csv.DictReader(h)
+                  colonne = colonne or r.fieldnames
+                  for x in r:
+                      righe[(x["data"], x["asset"])] = x      # i dati nuovi sostituiscono i vecchi
+          os.makedirs("studio", exist_ok=True)
+          with open(out, "w", newline="") as h:
+              w = csv.DictWriter(h, fieldnames=colonne)
+              w.writeheader()
+              w.writerows(righe[k] for k in sorted(righe))
+          print(len(righe), "righe in", out)
+          EOF
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add studio/
+          git commit -m "studio Tardis $(date -u +'%Y-%m-%d %H:%M')" || exit 0
+          for i in 1 2 3 4; do git pull --rebase && git push && exit 0; sleep $((i * 5)); done
+          exit 1
