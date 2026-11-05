@@ -13,8 +13,11 @@ Pensato per GitHub Actions (questo ambiente non raggiunge datasets.tardis.dev). 
 Uso:
     python3 analisi/studio_tardis.py --anno 2024 --mesi 06 --uscita studio_2024.csv
     python3 analisi/studio_tardis.py --anno 2024 --uscita studio_2024.csv      # tutti i mesi
+    python3 analisi/studio_tardis.py --mancanti 6 --uscita studio_mancanti.csv
+        # i primi 6 mesi che mancano in studio/tardis_giornaliero.csv; al primo 429 si ferma
+        # (l'accesso gratuito blocca dopo circa 20 richieste) e riprova all'avvio successivo
 """
-import argparse, csv, gzip, io, math, statistics, sys, time, urllib.error, urllib.request
+import argparse, csv, gzip, io, math, os, statistics, sys, time, urllib.error, urllib.request
 from datetime import date, datetime, timedelta, timezone
 
 URL = "https://datasets.tardis.dev/v1/deribit/{tipo}/{d:%Y/%m/%d}/{simbolo}.csv.gz"
@@ -22,9 +25,17 @@ PRIMO_GIORNO = date(2020, 3, 1)          # options_chain Deribit su Tardis parte
 ORA_FOTO = 1                             # fotografia della catena alle 01:00 UTC
 MARGINE_LETTURA = timedelta(minutes=10)  # si legge fino a 01:10 (local_timestamp) per sicurezza
 BANDA = 0.30
+TABELLA = "studio/tardis_giornaliero.csv"
 COLONNE = ["data", "asset", "spot_0100", "gex_totale", "gex_banda30", "gex_entro7g",
            "gamma_lorda_call", "gamma_lorda_put", "gex_norm", "iv_atm_30g", "n_opzioni",
            "ore_prezzo", "mov_medio_bp", "range_pct", "rend_pct"]
+
+
+class Bloccato(Exception):
+    """Tardis risponde 429 e si e' scelto di non aspettare."""
+
+
+ASPETTA_429 = True
 
 
 def apri(tipo, giorno, simbolo):
@@ -38,6 +49,8 @@ def apri(tipo, giorno, simbolo):
             if e.code == 404:
                 return None, None
             errore = e
+            if e.code == 429 and not ASPETTA_429:
+                raise Bloccato(url)
             if e.code == 429:            # troppe richieste: Tardis chiede di rallentare
                 attesa = min(int(e.headers.get("Retry-After") or 0) or 60 * 2 ** tentativo, 600)
                 print(f"429 su {url}: aspetto {attesa} s", flush=True)
@@ -153,25 +166,52 @@ def movimento(prezzi):
             "rend_pct": round(100 * (serie[-1] / p0 - 1), 4)}
 
 
+def mesi_mancanti(oggi):
+    """Primi del mese da PRIMO_GIORNO a oggi a cui manca BTC o ETH nella tabella."""
+    presenti = set()
+    if os.path.exists(TABELLA):
+        with open(TABELLA) as f:
+            presenti = {(r["data"], r["asset"]) for r in csv.DictReader(f)}
+    out, g = [], PRIMO_GIORNO
+    while g < oggi:
+        if (str(g), "BTC") not in presenti or (str(g), "ETH") not in presenti:
+            out.append(g)
+        g = date(g.year + g.month // 12, g.month % 12 + 1, 1)
+    return out
+
+
 def main():
+    global ASPETTA_429
     a = argparse.ArgumentParser()
-    a.add_argument("--anno", type=int, required=True)
+    a.add_argument("--anno", type=int)
     a.add_argument("--mesi", default="", help="es. '06' o '01 07'; vuoto = tutti")
+    a.add_argument("--mancanti", type=int, help="scarica i primi N mesi che mancano nella tabella")
     a.add_argument("--uscita", required=True)
     arg = a.parse_args()
-    mesi = [int(m) for m in arg.mesi.split()] or list(range(1, 13))
     oggi = datetime.now(timezone.utc).date()
+    if arg.mancanti:
+        ASPETTA_429 = False
+        giorni = mesi_mancanti(oggi)
+        print(f"Mesi mancanti: {len(giorni)}; in questo avvio: {[str(g) for g in giorni[:arg.mancanti]]}")
+        giorni = giorni[:arg.mancanti]
+    elif arg.anno:
+        giorni = [date(arg.anno, int(m), 1) for m in arg.mesi.split()] or \
+                 [date(arg.anno, m, 1) for m in range(1, 13)]
+    else:
+        sys.exit("Serve --anno oppure --mancanti")
     f_out = open(arg.uscita, "w", newline="")
     w = csv.DictWriter(f_out, fieldnames=COLONNE)
     w.writeheader()
     n_righe = 0
-    for m in mesi:
-        giorno = date(arg.anno, m, 1)
+    for giorno in giorni:
         if giorno < PRIMO_GIORNO or giorno >= oggi:
             continue
         t0 = time.time()
         try:
             foto, foto_ora = foto_catena(giorno)
+        except Bloccato:
+            print(f"{giorno}: Tardis blocca (429), mi fermo e riprovo al prossimo avvio")
+            break
         except Exception as e:           # un mese che fallisce non fa perdere gli altri
             print(f"{giorno}: ERRORE options_chain {e}")
             continue
@@ -182,6 +222,10 @@ def main():
             g = gex_asset(*foto, asset, foto_ora)
             try:
                 p = movimento(prezzi_orari(giorno, asset))
+            except Bloccato:
+                print(f"{giorno} {asset}: Tardis blocca (429) sui trades")
+                p = None
+                g = None
             except Exception as e:
                 print(f"{giorno} {asset}: ERRORE trades {e}")
                 continue
