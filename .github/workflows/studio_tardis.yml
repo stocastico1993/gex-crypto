@@ -9,6 +9,8 @@ on:
       mesi:
         description: 'Mesi (es. "06" o "01 07"); vuoto = tutti'
         default: ''
+  schedule:
+    - cron: '23 */6 * * *'    # ogni 6 ore: i prossimi 6 mesi mancanti (l'accesso gratuito blocca dopo ~20 richieste)
 
 permissions:
   contents: write             # serve per salvare la tabella nel repository
@@ -17,13 +19,14 @@ concurrency: studio-tardis
 
 jobs:
   scarica:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 1         # un anno alla volta: in parallelo Tardis risponde 429
       matrix:
-        anno: ${{ fromJSON(inputs.anni) }}
+        anno: ${{ fromJSON(inputs.anni || '["2020"]') }}   # il default serve solo quando parte dal cron (job saltato)
     steps:
       - uses: actions/checkout@v4
       - name: Scarica e calcola
@@ -35,8 +38,23 @@ jobs:
           if-no-files-found: ignore
           path: studio_${{ matrix.anno }}.csv
 
+  mancanti:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scarica i prossimi mesi mancanti
+        run: python3 -u analisi/studio_tardis.py --mancanti 6 --uscita studio_mancanti.csv
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: studio-mancanti
+          if-no-files-found: ignore
+          path: studio_mancanti.csv
+
   salva:
-    needs: scarica
+    needs: [scarica, mancanti]
     if: always()
     runs-on: ubuntu-latest
     steps:
