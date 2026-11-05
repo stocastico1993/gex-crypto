@@ -18,7 +18,7 @@ concurrency: studio-tardis
 jobs:
   scarica:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 1         # un anno alla volta: in parallelo Tardis risponde 429
@@ -27,10 +27,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Scarica e calcola
-        run: python3 analisi/studio_tardis.py --anno ${{ matrix.anno }} --mesi "${{ inputs.mesi }}" --uscita studio_${{ matrix.anno }}.csv
+        run: python3 -u analisi/studio_tardis.py --anno ${{ matrix.anno }} --mesi "${{ inputs.mesi }}" --uscita studio_${{ matrix.anno }}.csv
       - uses: actions/upload-artifact@v4
+        if: always()          # anche se il job si interrompe: i mesi gia' fatti non vanno persi
         with:
           name: studio-${{ matrix.anno }}
+          if-no-files-found: ignore
           path: studio_${{ matrix.anno }}.csv
 
   salva:

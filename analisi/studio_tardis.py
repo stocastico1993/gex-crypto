@@ -30,7 +30,7 @@ COLONNE = ["data", "asset", "spot_0100", "gex_totale", "gex_banda30", "gex_entro
 def apri(tipo, giorno, simbolo):
     url = URL.format(tipo=tipo, d=giorno, simbolo=simbolo)
     req = urllib.request.Request(url, headers={"User-Agent": "gex-crypto-studio"})
-    for tentativo in range(6):
+    for tentativo in range(4):
         try:
             risposta = urllib.request.urlopen(req, timeout=120)
             return risposta, io.TextIOWrapper(gzip.GzipFile(fileobj=risposta), encoding="utf-8")
@@ -39,8 +39,8 @@ def apri(tipo, giorno, simbolo):
                 return None, None
             errore = e
             if e.code == 429:            # troppe richieste: Tardis chiede di rallentare
-                attesa = int(e.headers.get("Retry-After") or 0) or 60 * 2 ** tentativo
-                print(f"429 su {url}: aspetto {attesa} s")
+                attesa = min(int(e.headers.get("Retry-After") or 0) or 60 * 2 ** tentativo, 600)
+                print(f"429 su {url}: aspetto {attesa} s", flush=True)
                 time.sleep(attesa)
                 continue
         except Exception as e:
@@ -161,7 +161,10 @@ def main():
     arg = a.parse_args()
     mesi = [int(m) for m in arg.mesi.split()] or list(range(1, 13))
     oggi = datetime.now(timezone.utc).date()
-    righe = []
+    f_out = open(arg.uscita, "w", newline="")
+    w = csv.DictWriter(f_out, fieldnames=COLONNE)
+    w.writeheader()
+    n_righe = 0
     for m in mesi:
         giorno = date(arg.anno, m, 1)
         if giorno < PRIMO_GIORNO or giorno >= oggi:
@@ -185,15 +188,15 @@ def main():
             if g is None or p is None:
                 print(f"{giorno} {asset}: dati insufficienti (gex={g is not None}, prezzi={p is not None})")
                 continue
-            righe.append({"data": str(giorno), "asset": asset, **p, **g})
-            print(f"{giorno} {asset}: {righe[-1]}")
+            riga = {"data": str(giorno), "asset": asset, **p, **g}
+            w.writerow(riga)
+            f_out.flush()                # ogni mese resta salvato anche se il job si interrompe
+            n_righe += 1
+            print(f"{giorno} {asset}: {riga}")
         print(f"{giorno}: {time.time() - t0:.0f} s")
         time.sleep(5)                    # una richiesta alla volta, senza fretta
-    with open(arg.uscita, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=COLONNE)
-        w.writeheader()
-        w.writerows(righe)
-    print(f"{len(righe)} righe in {arg.uscita}")
+    f_out.close()
+    print(f"{n_righe} righe in {arg.uscita}")
 
 
 if __name__ == "__main__":
