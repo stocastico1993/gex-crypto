@@ -65,6 +65,47 @@ coincidenza è del tutto possibile.
   banda è sceso da circa 197.000 a 129.000.
 - **Un solo periodo di mercato:** la scoperta copre una settimana.
 
+## Studio storico Tardis (81 primi del mese, 03/2020 – 11/2026)
+
+Fatto il 07/11/2026 dopo aver fissato H1, quindi **non** sostituisce il test di H1: usa dati
+diversi (un giorno al mese, fotografia alle 01:00 UTC, movimento nelle 23 ore dopo, GEX al prezzo
+del momento) e serve a capire se l'idea regge su più anni.
+
+- Dati: `studio/tardis_giornaliero.csv`, scaricati con `analisi/studio_tardis.py` e il workflow
+  `studio_tardis.yml` dai file gratuiti di Tardis.dev (primo giorno di ogni mese).
+- Analisi: `python3 analisi/studio_tardis_analisi.py`, dalla cartella principale del repo.
+
+### Correlazioni (Spearman, p da permutazioni a una coda)
+
+| misura | BTC semplice | BTC a parità di IV e tempo | ETH semplice | ETH a parità di IV e tempo |
+|---|---|---|---|---|
+| GEX normalizzato | 0,00 | −0,12 (p 0,14) | −0,09 | −0,27 (p 0,008) |
+| GEX totale | −0,31 | −0,23 (p 0,02) | −0,33 | −0,24 (p 0,02) |
+| GEX fino a 7 giorni | −0,10 | −0,14 (p 0,11) | −0,10 | −0,20 (p 0,035) |
+| IV ATM 30g | +0,61 | | +0,61 | |
+
+- Con 6 test la soglia di Bonferroni è circa 0,008: regge, al limite, solo ETH con il GEX normalizzato.
+- L'effetto compare solo negli anni recenti. A parità di IV e tempo, BTC GEX totale vale +0,04 tra
+  03/2020 e 06/2023 e −0,35 tra 07/2023 e 11/2026; ETH GEX normalizzato vale −0,03 e −0,32.
+- Il segno del GEX da solo non distingue niente: con GEX negativo il movimento medio è quasi uguale
+  agli altri giorni (BTC 39 contro 38 bp, ETH 50 contro 49 bp).
+- Su 53 mesi (03/2020 – 07/2024) il GEX a parità di IV e tempo era circa zero: il risultato
+  dipende dal periodo.
+
+### Previsione fuori campione (57 mesi, 03/2022 – 11/2026)
+
+Ogni mese si stima log(movimento) solo sui mesi precedenti e si prevede il mese.
+
+| modello | BTC: errore rispetto a solo IV | ETH: errore rispetto a solo IV |
+|---|---|---|
+| media | 37% peggio | 49% peggio |
+| IV + GEX normalizzato | uguale (p 0,51) | 2,5% meglio (p 0,31) |
+| IV + GEX normalizzato + GEX fino a 7 giorni | 1,7% peggio | 1,2% peggio |
+
+**Conclusione.** Un piccolo legame tra GEX e movimento forse esiste, più chiaro su ETH e dal 2023,
+ma è troppo debole per migliorare una previsione basata sulla IV. Ci si aspetta quindi che anche
+H1 dia esito negativo; il test di H1 resta comunque da fare con le regole fissate sopra.
+
 ## Idee secondarie
 
 - **Flusso di posizioni:** variazione a 24h del GEX a prezzo fisso come misura di posizioni aperte e
